@@ -3,14 +3,21 @@ package org.carlspring.cloud.storage.s3fs;
 import org.carlspring.cloud.storage.s3fs.junit.annotations.S3IntegrationTest;
 import org.carlspring.cloud.storage.s3fs.util.BaseIntegrationTest;
 import org.carlspring.cloud.storage.s3fs.util.CopyDirVisitor;
-import org.carlspring.cloud.storage.s3fs.util.EnvironmentBuilder;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.URI;
 import java.nio.channels.SeekableByteChannel;
-import java.nio.file.*;
+import java.nio.file.DirectoryStream;
+import java.nio.file.FileSystem;
+import java.nio.file.FileSystemNotFoundException;
+import java.nio.file.FileSystems;
+import java.nio.file.FileVisitResult;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.EnumSet;
 import java.util.Map;
@@ -24,16 +31,19 @@ import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
-import static org.carlspring.cloud.storage.s3fs.util.S3EndpointConstant.S3_GLOBAL_URI_IT;
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @S3IntegrationTest
-class FilesIT extends BaseIntegrationTest
+class FilesIT
+        extends BaseIntegrationTest
 {
 
-    private static final String bucket = EnvironmentBuilder.getBucket();
-
-    private static final URI uriGlobal = EnvironmentBuilder.getS3URI(S3_GLOBAL_URI_IT);
+    private static final String BUCKET_NAME = ENVIRONMENT_CONFIGURATION.getBucketName();
+    private static final URI URI_GLOBAL = ENVIRONMENT_CONFIGURATION.getGlobalUrl();
 
     private FileSystem fileSystemAmazon;
 
@@ -52,7 +62,7 @@ class FilesIT extends BaseIntegrationTest
     {
         try
         {
-            FileSystems.getFileSystem(uriGlobal).close();
+            FileSystems.getFileSystem(URI_GLOBAL).close();
 
             return createNewFileSystem();
         }
@@ -65,13 +75,13 @@ class FilesIT extends BaseIntegrationTest
     private static FileSystem createNewFileSystem()
             throws IOException
     {
-        return FileSystems.newFileSystem(uriGlobal, EnvironmentBuilder.getRealEnv());
+        return FileSystems.newFileSystem(URI_GLOBAL, ENVIRONMENT_CONFIGURATION.asMap());
     }
 
     @Test
     void notExistsDir()
     {
-        Path dir = fileSystemAmazon.getPath(bucket, UUID.randomUUID().toString() + "/");
+        Path dir = fileSystemAmazon.getPath(BUCKET_NAME, UUID.randomUUID().toString() + "/");
 
         assertFalse(Files.exists(dir));
     }
@@ -79,7 +89,7 @@ class FilesIT extends BaseIntegrationTest
     @Test
     void notExistsFile()
     {
-        Path file = fileSystemAmazon.getPath(bucket, UUID.randomUUID().toString());
+        Path file = fileSystemAmazon.getPath(BUCKET_NAME, UUID.randomUUID().toString());
 
         assertFalse(Files.exists(file));
     }
@@ -88,7 +98,7 @@ class FilesIT extends BaseIntegrationTest
     void existsFile()
             throws IOException
     {
-        Path file = fileSystemAmazon.getPath(bucket, UUID.randomUUID().toString());
+        Path file = fileSystemAmazon.getPath(BUCKET_NAME, UUID.randomUUID().toString());
 
         EnumSet<StandardOpenOption> options = EnumSet.of(StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
 
@@ -101,7 +111,7 @@ class FilesIT extends BaseIntegrationTest
     void existsFileWithSpace()
             throws IOException
     {
-        Path file = fileSystemAmazon.getPath(bucket, UUID.randomUUID().toString(), "space folder");
+        Path file = fileSystemAmazon.getPath(BUCKET_NAME, UUID.randomUUID().toString(), "space folder");
 
         Files.createDirectories(file);
 
@@ -224,7 +234,7 @@ class FilesIT extends BaseIntegrationTest
     void directoryStreamBaseBucketFindDirectoryTest()
             throws IOException
     {
-        Path bucketPath = fileSystemAmazon.getPath(bucket);
+        Path bucketPath = fileSystemAmazon.getPath(BUCKET_NAME);
         String name = "01" + UUID.randomUUID().toString();
 
         final Path fileToFind = Files.createDirectory(bucketPath.resolve(name));
@@ -239,7 +249,7 @@ class FilesIT extends BaseIntegrationTest
     void directoryStreamBaseBucketFindFileTest()
             throws IOException
     {
-        Path bucketPath = fileSystemAmazon.getPath(bucket);
+        Path bucketPath = fileSystemAmazon.getPath(BUCKET_NAME);
         String name = "00" + UUID.randomUUID().toString();
 
         final Path fileToFind = Files.createFile(bucketPath.resolve(name));
@@ -282,7 +292,7 @@ class FilesIT extends BaseIntegrationTest
         String file1 = folder + "file.html";
         String file2 = folder + "file2.html";
 
-        Path dir = fileSystemAmazon.getPath(bucket, folder);
+        Path dir = fileSystemAmazon.getPath(BUCKET_NAME, folder);
 
         S3Path s3Path = (S3Path) dir;
         final S3Client client = s3Path.getFileSystem().getClient();
@@ -342,7 +352,7 @@ class FilesIT extends BaseIntegrationTest
         String subFolder = folder + "subfolder/file.html";
         String file2 = folder + "file2.html";
 
-        Path dir = fileSystemAmazon.getPath(bucket, folder);
+        Path dir = fileSystemAmazon.getPath(BUCKET_NAME, folder);
 
         S3Path s3Path = (S3Path) dir;
         final S3Client client = s3Path.getFileSystem().getClient();
@@ -462,7 +472,7 @@ class FilesIT extends BaseIntegrationTest
         try (FileSystem linux = MemoryFileSystemBuilder.newLinux().build("linux"))
         {
             Path sourceLocal = Files.write(linux.getPath("/index.html"), content.getBytes());
-            Path result = fileSystemAmazon.getPath(bucket, UUID.randomUUID().toString());
+            Path result = fileSystemAmazon.getPath(BUCKET_NAME, UUID.randomUUID().toString());
 
             Files.move(sourceLocal, result);
 
@@ -480,7 +490,7 @@ class FilesIT extends BaseIntegrationTest
         final String content = "sample content";
 
         Path source = uploadSingleFile(content);
-        Path dest = fileSystemAmazon.getPath(bucket, UUID.randomUUID().toString());
+        Path dest = fileSystemAmazon.getPath(BUCKET_NAME, UUID.randomUUID().toString());
 
         Files.move(source, dest);
 
@@ -495,7 +505,7 @@ class FilesIT extends BaseIntegrationTest
     {
         String fileWithFolders = UUID.randomUUID().toString() + "/folder2/file.html";
 
-        Path path = fileSystemAmazon.getPath(bucket, fileWithFolders.split("/"));
+        Path path = fileSystemAmazon.getPath(BUCKET_NAME, fileWithFolders.split("/"));
 
         S3Path s3Path = (S3Path) path;
         final S3Client client = s3Path.getFileSystem().getClient();
@@ -521,7 +531,7 @@ class FilesIT extends BaseIntegrationTest
                                               "<html><body>html file</body></html>".getBytes());
 
             final String fileName = UUID.randomUUID().toString() + htmlFile.getFileName().toString();
-            final Path result = fileSystemAmazon.getPath(bucket, fileName);
+            final Path result = fileSystemAmazon.getPath(BUCKET_NAME, fileName);
 
             Files.copy(htmlFile, result);
 
@@ -563,7 +573,7 @@ class FilesIT extends BaseIntegrationTest
             final Path htmlFile = Files.write(linux.getPath("/index.adsadas"), data);
 
             final String fileName = UUID.randomUUID().toString() + htmlFile.getFileName().toString();
-            final Path result = fileSystemAmazon.getPath(bucket, fileName);
+            final Path result = fileSystemAmazon.getPath(BUCKET_NAME, fileName);
 
             Files.copy(htmlFile, result);
 
@@ -589,7 +599,7 @@ class FilesIT extends BaseIntegrationTest
                                               "<html><body>html file</body></html>".getBytes());
 
             final String fileName = UUID.randomUUID().toString() + htmlFile.getFileName().toString();
-            final Path result = fileSystemAmazon.getPath(bucket, fileName);
+            final Path result = fileSystemAmazon.getPath(BUCKET_NAME, fileName);
 
             try (final OutputStream out = Files.newOutputStream(result))
             {
@@ -678,7 +688,7 @@ class FilesIT extends BaseIntegrationTest
             Files.createDirectory(assets.resolve("locales"));
             Files.createFile(dirDynamicLocale.resolve("tmhDinamicLocale.min.js"));
 
-            dir = fileSystemAmazon.getPath(bucket, startPath);
+            dir = fileSystemAmazon.getPath(BUCKET_NAME, startPath);
 
             Files.exists(assets);
             Files.walkFileTree(assets.getParent(), new CopyDirVisitor(assets.getParent().getParent(), dir));
@@ -708,7 +718,7 @@ class FilesIT extends BaseIntegrationTest
     void bucketIsDirectory()
             throws IOException
     {
-        Path path = fileSystemAmazon.getPath(bucket, "/");
+        Path path = fileSystemAmazon.getPath(BUCKET_NAME, "/");
 
         BasicFileAttributes attrs = Files.readAttributes(path, BasicFileAttributes.class);
 
@@ -722,7 +732,7 @@ class FilesIT extends BaseIntegrationTest
     @Test
     void fileIsReadableBucket()
     {
-        Path path = fileSystemAmazon.getPath(bucket, "/");
+        Path path = fileSystemAmazon.getPath(BUCKET_NAME, "/");
 
         boolean readable = Files.isReadable(path);
 
@@ -745,7 +755,7 @@ class FilesIT extends BaseIntegrationTest
     private Path createEmptyDir()
             throws IOException
     {
-        Path dir = fileSystemAmazon.getPath(bucket, UUID.randomUUID().toString() + "/");
+        Path dir = fileSystemAmazon.getPath(BUCKET_NAME, UUID.randomUUID().toString() + "/");
 
         Files.createDirectory(dir);
 
@@ -755,7 +765,7 @@ class FilesIT extends BaseIntegrationTest
     private Path createEmptyFile()
             throws IOException
     {
-        Path file = fileSystemAmazon.getPath(bucket, UUID.randomUUID().toString());
+        Path file = fileSystemAmazon.getPath(BUCKET_NAME, UUID.randomUUID().toString());
 
         Files.createFile(file);
 
@@ -776,7 +786,7 @@ class FilesIT extends BaseIntegrationTest
                 Files.createFile(linux.getPath("/index.html"));
             }
 
-            Path result = fileSystemAmazon.getPath(bucket, UUID.randomUUID().toString());
+            Path result = fileSystemAmazon.getPath(BUCKET_NAME, UUID.randomUUID().toString());
 
             Files.copy(linux.getPath("/index.html"), result);
 
@@ -799,7 +809,7 @@ class FilesIT extends BaseIntegrationTest
             Files.createDirectory(assets.resolve("js"));
             Files.createFile(assets.resolve("js").resolve("main.js"));
 
-            Path dir = fileSystemAmazon.getPath(bucket, "0000example" + UUID.randomUUID().toString() + "/");
+            Path dir = fileSystemAmazon.getPath(BUCKET_NAME, "0000example" + UUID.randomUUID().toString() + "/");
 
             Files.exists(assets);
             Files.walkFileTree(assets.getParent(), new CopyDirVisitor(assets.getParent(), dir));

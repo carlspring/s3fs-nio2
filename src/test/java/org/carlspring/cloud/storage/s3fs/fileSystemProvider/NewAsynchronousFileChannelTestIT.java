@@ -40,8 +40,9 @@ class NewAsynchronousFileChannelTestIT
         extends S3UnitTestBase
 {
 
-    private static final String bucket = EnvironmentBuilder.getBucket();
+    private static final String bucket = EnvironmentBuilder.getEnvironmentConfiguration().getBucketName();
 
+    // TODO: Replace (with BaseIntegrationTest:getGlobalUrl) or delete when https://github.com/carlspring/s3fs-nio/issues/187 is closed.
     private static final URI uriGlobal = EnvironmentBuilder.getS3URI(S3_GLOBAL_URI_IT);
 
     private FileSystem fileSystemAmazon;
@@ -76,7 +77,7 @@ class NewAsynchronousFileChannelTestIT
     private static FileSystem createNewFileSystem()
             throws IOException
     {
-        return FileSystems.newFileSystem(uriGlobal, EnvironmentBuilder.getRealEnv());
+        return FileSystems.newFileSystem(uriGlobal, EnvironmentBuilder.getEnvironmentConfiguration().asMap());
     }
 
     @Test
